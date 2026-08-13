@@ -536,11 +536,14 @@ function renderChartD() {
 
 /* ---------- 渲染：key chips ---------- */
 
-/* 顶栏「Key 筛选」按钮：显示当前选中的 key 色点与计数 */
+/* 顶栏「Key 筛选」按钮：显示当前选中的 key 色点、名字与计数 */
 function updateKeyToggle() {
   const dots = $("kptDots");
+  const names = $("kptNames");
   const cnt = $("kptCount");
   dots.innerHTML = "";
+  names.textContent = "";
+  names.title = "";
   if (!state.result || !state.byKey.length) {
     cnt.textContent = "";
     return;
@@ -553,6 +556,10 @@ function updateKeyToggle() {
     d.style.background = state.colorOf.get(a.keyId) || "#64748c";
     d.title = a.displayName;
     dots.appendChild(d);
+  }
+  if (sel.length) {
+    names.textContent = sel.map((a) => a.displayName).join("、");
+    names.title = sel.map((a) => a.displayName).join("、");
   }
   cnt.textContent = `${sel.length}/${rows.length}`;
 }
