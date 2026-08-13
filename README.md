@@ -54,6 +54,17 @@ python3 parse_har.py opencode.ai.har --json out.json --csv records.csv
 
 `analyzer.js` / `parse_har.py` 内置 `$R` 引用数组解析器，把该格式还原为普通 JSON。
 
+## 部署到 GitHub Pages
+
+项目为纯静态站点，已内置 GitHub Actions 工作流（`.github/workflows/deploy-pages.yml`）：
+
+1. 把仓库推送到 GitHub（推送到 `main` 分支即自动构建）；
+2. 仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions**；
+3. 等待 Actions 完成后，即可通过 `https://<用户名>.github.io/<仓库名>/` 访问；
+4. 也可以手动触发：Actions → Deploy to GitHub Pages → Run workflow。
+
+> 图表库（ECharts）与字体通过 CDN 加载，在线访问需要网络。
+
 ## 数据说明
 
 - 调用明细按 `timeCreated`（UTC）换算为浏览器本地时区后分桶；
