@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenCode AI 用量台 · HAR 解析器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 12h4l2-6 4 12 2-6h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="brand-text">
+      <h1>OpenCode AI 用量台</h1>
+      <p class="brand-sub">HAR 解析 · key 身份识别 · 消耗追踪</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button id="keyPanelToggle" class="btn-ghost" type="button" aria-expanded="true">Key 筛选</button>
+    <button id="uploadBtn" class="btn-upload" type="button">
+      <span class="btn-upload-icon">⇪</span> 上传 HAR 文件
+    </button>
+    <input id="fileInput" type="file" accept=".har,application/json" hidden>
+  </div>
+</header>
+
+<main class="page">
+
+  <!-- ============ 空态 / 拖拽上传 ============ -->
+  <section id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="上传 HAR 文件，也可拖拽到此处">
+    <div class="dz-glyph" aria-hidden="true">
+      <svg viewBox="0 0 48 48" width="56" height="56">
+        <rect x="6" y="10" width="36" height="28" rx="3" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M6 20h36" stroke="currentColor" stroke-width="2"/>
+        <path d="M18 32h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M24 16v-6m0 0l-4 4m4-4l4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <p class="dz-title">把 .har 文件拖到这里</p>
+    <p class="dz-sub">或点击选择文件 — 解析全程在浏览器本地完成，文件不会上传到任何服务器</p>
+    <p class="dz-tip mono">目标接口：opencode.ai/_server · server-fn 序列化</p>
+  </section>
+
+  <!-- 如何生成 HAR 指引 -->
+  <section id="harGuide" class="card guide" aria-label="如何生成 HAR 文件">
+    <div class="guide-head">
+      <h2>如何生成对应的 .har 文件</h2>
+      <span class="hint">4 步 · 全程本地解析，无需上传</span>
+    </div>
+    <ol class="guide-steps">
+      <li>打开浏览器开发者工具（<kbd>F12</kbd>），切到 <b>Network</b> 面板，勾选 <b>Preserve log</b>（保留日志）。</li>
+      <li>打开 <span class="mono">opencode.ai</span> 的<b>使用量（Usage）</b>页面。</li>
+      <li>在<b>使用历史</b>中持续往下翻页，直到所有记录加载完（每次翻页都会请求 <span class="mono">opencode.ai/_server</span>）。</li>
+      <li>在请求列表中右键 → <b>Save all as HAR</b>（导出 HAR），保存为 <span class="mono">.har</span> 文件。</li>
+    </ol>
+    <p class="guide-tip">只需保留含 <span class="mono">_server</span> 的请求即可，其他资源请求会自动忽略。</p>
+  </section>
+
+  <!-- ============ 结果区 ============ -->
+  <section id="result" class="hidden">
+
+    <div class="filebar">
+      <span class="filebar-name mono" id="fileName"></span>
+      <span class="meta" id="fileMeta"></span>
+      <span class="spacer"></span>
+      <label class="costunit" title="成本原始数值 / 按 1e-6 换算为美元">
+        <span>成本单位</span>
+        <select id="costUnitSel">
+          <option value="raw">原始值</option>
+          <option value="usd">美元 $</option>
+        </select>
+      </label>
+      <button id="reloadBtn" class="btn-ghost small" type="button">重新上传</button>
+    </div>
+
+    <!-- 磁带图：每小时调用量，按 key 着色 -->
+    <section class="card tape-card" aria-label="每小时调用量磁带图">
+      <div class="card-head">
+        <h2>调用磁带 <span class="hint">每小时 · 按 key 着色</span></h2>
+        <span class="hint mono" id="tapeRange"></span>
+      </div>
+      <div id="tapeChart" class="tape"></div>
+    </section>
+
+    <!-- 统计卡 -->
+    <section class="stats" id="stats" aria-label="汇总统计"></section>
+
+    <!-- 图表区 -->
+    <section class="charts" aria-label="图表分析">
+      <div class="chart-toolbar">
+        <div class="seg" id="granularitySeg" role="tablist" aria-label="时间粒度">
+          <button data-g="hour" class="active" type="button">按小时</button>
+          <button data-g="day" type="button">按天</button>
+        </div>
+        <div class="seg" id="metricSeg" role="tablist" aria-label="汇总指标">
+          <button data-m="calls" class="active" type="button">调用次数</button>
+          <button data-m="input" type="button">输入 token</button>
+          <button data-m="output" type="button">输出 token</button>
+          <button data-m="cost" type="button">成本</button>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <div class="card">
+          <div class="card-head"><h3 id="chartATitle">按时调用量</h3></div>
+          <div id="chartA" class="chart"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3 id="chartBTitle">按时成本消耗</h3></div>
+          <div id="chartB" class="chart"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3 id="chartCTitle">按 key 汇总</h3><span class="hint">随上方指标切换</span></div>
+          <div id="chartC" class="chart"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>按模型汇总</h3></div>
+          <div id="chartD" class="chart"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- key 全局筛选悬浮面板 -->
+    <section class="card">
+      <div class="card-head">
+        <h2>Key 汇总</h2>
+        <span class="hint">完整 key_xxx ↔ displayName 关系</span>
+      </div>
+      <div class="table-scroll">
+        <table id="keyMapTable">
+          <thead>
+            <tr><th>keyID</th><th>displayName</th><th>状态</th><th>plan</th><th>调用次数</th><th>成本</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 调用明细 -->
+    <section class="card">
+      <div class="card-head">
+        <h2>调用明细</h2>
+        <div class="head-actions">
+          <input id="searchInput" class="search" type="search" placeholder="搜索 displayName / key / 模型 / id…">
+          <button id="csvBtn" class="btn-ghost small" type="button">导出 CSV</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table id="recordsTable">
+          <thead>
+            <tr>
+              <th data-sort="timeCreated" class="sortable">时间</th>
+              <th>Key（displayName）</th>
+              <th data-sort="model">模型</th>
+              <th>Provider</th>
+              <th data-sort="inputTokens" class="sortable num">输入 token</th>
+              <th data-sort="outputTokens" class="sortable num">输出 token</th>
+              <th class="num">推理</th>
+              <th class="num">缓存读取</th>
+              <th data-sort="cost" class="sortable num">成本</th>
+              <th>Plan</th>
+              <th>记录 ID</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span class="meta" id="pageInfo"></span>
+        <div class="pager-ctrl">
+          <label class="meta">每页
+            <select id="pageSizeSel">
+              <option value="20">20</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+            </select>
+          </label>
+          <button id="prevBtn" class="pg-btn" type="button" aria-label="上一页">‹</button>
+          <span class="mono" id="pageNum"></span>
+          <button id="nextBtn" class="pg-btn" type="button" aria-label="下一页">›</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 每日汇总 -->
+    <section class="card">
+      <div class="card-head">
+        <h2>每日汇总</h2>
+        <span class="hint">服务端 usage 统计（server-fn:0）</span>
+      </div>
+      <div class="table-scroll">
+        <table id="dailyTable">
+          <thead>
+            <tr><th>日期</th><th>模型</th><th>Key</th><th class="num">成本</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <span class="mono">解析引擎 · server-fn $R 序列化</span>
+      <span>数据全程本地处理，不上传</span>
+    </footer>
+  </section>
+</main>
+
+<!-- Key 全局筛选悬浮面板（右侧抽屉） -->
+<aside id="keyPanel" class="key-panel hidden" aria-label="Key 筛选面板">
+  <div class="kp-head">
+    <span class="kp-title">Key 筛选</span>
+    <button id="kpClose" class="kp-close" type="button" aria-label="收起面板" title="收起">›</button>
+  </div>
+  <p class="kp-sub">点击切换：决定图表与明细表纳入哪些 key</p>
+  <div id="keyChips" class="chips kp-chips"></div>
+</aside>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script src="analyzer.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

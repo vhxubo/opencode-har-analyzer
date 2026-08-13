@@ -1,0 +1,14 @@
+# 示例/抓包数据（体积大且含敏感信息，不入库）
+*.har
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
