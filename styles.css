@@ -4,6 +4,9 @@
    ==========================================================================*/
 
 :root {
+  /* 声明深色主题：让 select/input/滚动条等原生控件跟随深色渲染，避免系统浅色主题下白底白字 */
+  color-scheme: dark;
+
   /* 底色 */
   --bg: #0a0e14;
   --bg-2: #0d131b;
@@ -527,7 +530,18 @@ th.sortable.sorted-desc::after { content: " ▼"; opacity: 1; color: var(--amber
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-2);
+  color: var(--amber);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.kp-title::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(242, 169, 59, 0.6);
 }
 .kp-close {
   border: none;
@@ -607,6 +621,23 @@ body.panel-open .page { padding-right: calc(clamp(16px, 4vw, 40px) + 256px); }
   .topbar { flex-wrap: wrap; }
   .stat-value { font-size: 18px; }
   .tape { height: 110px; }
+}
+
+/* ---------- 滚动条主题适配 ---------- */
+
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 /* ---------- 动效降级 ---------- */
