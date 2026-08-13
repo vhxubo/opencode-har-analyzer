@@ -347,18 +347,17 @@ function aggregateByModel(records, keyMap) {
     .sort((a, b) => b.cost - a.cost);
 }
 
-/* ---------------- 异常检测：短时高频调用 ---------------- */
+/* ---------------- 异常检测：分钟级调用次数 ---------------- */
 
 /**
- * 对每个 key 滑动窗口扫描：窗口内调用数同时满足
- *   ≥ minCalls（绝对下限）且 ≥ 该 key 平均频率 × windowMin × multiplier（相对倍率）
- * 即判定为异常事件，合并重叠/相邻窗口后输出。
+ * 按分钟统计每个 key 的调用次数：
+ *   - 每 key 每分钟调用数 ≥ max(minCalls, 平均每分钟调用数 × multiplier) 即标记该分钟异常；
+ *   - 相邻异常分钟（间隔 ≤ mergeGapMin 分钟）合并为同一异常事件。
  */
 function detectAnomalies(records, keyMap, opts = {}) {
-  const windowMin = opts.windowMin ?? 5;
   const minCalls = opts.minCalls ?? 8;
   const multiplier = opts.multiplier ?? 3;
-  const winMs = windowMin * 60 * 1000;
+  const mergeGapMin = opts.mergeGapMin ?? 1;
 
   const groups = new Map();
   for (const r of records) {
@@ -370,54 +369,64 @@ function detectAnomalies(records, keyMap, opts = {}) {
   const events = [];
   for (const [kid, list] of groups) {
     if (list.length < minCalls) continue;
-    const times = list
-      .map((r) => new Date(r.timeCreated).getTime())
-      .filter((t) => !isNaN(t))
-      .sort((a, b) => a - b);
-    if (times.length < minCalls) continue;
 
-    const span = times[times.length - 1] - times[0] + 1;
-    const avgRate = span > 0 ? times.length / (span / 60000) : 0; // 次/分钟
-    const threshold = Math.max(minCalls, Math.ceil(avgRate * windowMin * multiplier));
-
-    // 滑动窗口双指针：对每个起点 i，统计 [t_i, t_i+winMs) 内记录数
-    const windows = [];
-    let j = 0;
-    for (let i = 0; i < times.length; i++) {
-      while (j < times.length && times[j] - times[i] < winMs) j++;
-      if (j - i >= threshold) windows.push([i, j]);
+    // 分钟级分桶
+    const bucket = new Map(); // minuteKey -> { count, recs, ts }
+    for (const r of list) {
+      const d = new Date(r.timeCreated);
+      if (isNaN(d)) continue;
+      const p = (x) => String(x).padStart(2, "0");
+      const mkey = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+      if (!bucket.has(mkey)) bucket.set(mkey, { count: 0, recs: [], ts: d.getTime() });
+      const b = bucket.get(mkey);
+      b.count++;
+      b.recs.push(r);
     }
-    // 合并重叠/相邻窗口为连续事件段
+    if (!bucket.size) continue;
+
+    const times = [...bucket.values()].map((b) => b.ts).sort((a, b) => a - b);
+    const spanMin = (times[times.length - 1] - times[0]) / 60000 + 1;
+    const avgPerMin = spanMin > 0 ? list.length / spanMin : 0; // 平均每分钟调用数
+    const threshold = Math.max(minCalls, Math.ceil(avgPerMin * multiplier));
+
+    // 标记异常分钟并按时间排序
+    const abnormal = [...bucket.entries()]
+      .filter(([, b]) => b.count >= threshold)
+      .sort((a, b) => a[1].ts - b[1].ts);
+
+    // 相邻异常分钟合并为事件段（间隔 ≤ mergeGapMin 分钟）
     const merged = [];
-    for (const [s, e] of windows) {
+    for (const [, b] of abnormal) {
       const last = merged[merged.length - 1];
-      if (last && s <= last[1]) last[1] = Math.max(last[1], e);
-      else merged.push([s, e]);
+      if (last && (b.ts - last.end) / 60000 <= mergeGapMin) {
+        last.end = b.ts;
+        last.calls += b.count;
+        last.recs.push(...b.recs);
+      } else {
+        merged.push({ start: b.ts, end: b.ts, calls: b.count, recs: [...b.recs] });
+      }
     }
 
-    for (const [s, e] of merged) {
-      const recs = list.slice(s, e);
-      const start = times[s];
-      const end = times[e - 1];
-      const calls = e - s;
-      const ratePerMin = calls / ((end - start) / 60000 || 1);
+    for (const ev of merged) {
+      const minutes = Math.max(1, (ev.end - ev.start) / 60000 + 1);
+      const ratePerMin = ev.calls / minutes;
       const models = {};
-      for (const r of recs) models[r.model || "?"] = (models[r.model || "?"] || 0) + 1;
+      for (const r of ev.recs) models[r.model || "?"] = (models[r.model || "?"] || 0) + 1;
       events.push({
         keyId: kid,
         displayName: displayNameOf(keyMap, kid),
-        start,
-        end,
-        startIso: new Date(start).toISOString(),
-        endIso: new Date(end).toISOString(),
-        calls,
+        start: ev.start,
+        end: ev.end,
+        startIso: new Date(ev.start).toISOString(),
+        endIso: new Date(ev.end).toISOString(),
+        calls: ev.calls,
         ratePerMin,
         models: Object.entries(models).sort((a, b) => b[1] - a[1]),
-        pctOfKey: Math.round((calls / list.length) * 1000) / 10,
+        pctOfKey: Math.round((ev.calls / list.length) * 1000) / 10,
         threshold,
-        avgRate,
-        windowMin,
-        records: recs,
+        avgRate: avgPerMin,
+        windowMin: 1,
+        records: ev.recs,
       });
     }
   }

@@ -644,7 +644,7 @@ let anomExpanded = new Set(); // 展开的行索引
 function runAnomaly() {
   if (!state.result) return;
   const opts = {
-    windowMin: parseInt($("anomWin").value, 10) || 5,
+    mergeGapMin: parseInt($("anomGap").value, 10) || 1,
     minCalls: parseInt($("anomMin").value, 10) || 8,
     multiplier: parseInt($("anomMult").value, 10) || 3,
   };
@@ -659,9 +659,9 @@ function renderAnomaly(opts) {
   const totalCalls = anomEvents.reduce((s, e) => s + e.calls, 0);
   const maxRate = anomEvents.length ? Math.max(...anomEvents.map((e) => e.ratePerMin)) : 0;
   const cards = [
-    { k: "calls", label: "异常窗口", value: fmtInt(anomEvents.length), sub: "短时高频事件" },
-    { k: "keys", label: "涉及 key", value: fmtInt(keys.size), sub: `窗口 ≥ ${opts.windowMin} 分钟` },
-    { k: "cost", label: "异常调用数", value: fmtInt(totalCalls), sub: "窗口内合计" },
+    { k: "calls", label: "异常事件", value: fmtInt(anomEvents.length), sub: "分钟级高频调用" },
+    { k: "keys", label: "涉及 key", value: fmtInt(keys.size), sub: `间隔 ≤ ${opts.mergeGapMin} 分钟合并` },
+    { k: "cost", label: "异常调用数", value: fmtInt(totalCalls), sub: "事件内合计" },
     { k: "span", label: "最高频率", value: maxRate ? maxRate.toFixed(1) : "—", sub: "次 / 分钟" },
   ];
   $("anomSummary").innerHTML = anomEvents.length
@@ -674,7 +674,7 @@ function renderAnomaly(opts) {
           </div>`
         )
         .join("")}</div>`
-    : `<p class="empty-note">✓ 未检测到异常窗口（当前参数：${opts.windowMin} 分钟 ≥ ${opts.minCalls} 次且 ≥ 均值 ${opts.multiplier} 倍）</p>`;
+    : `<p class="empty-note">✓ 未检测到异常分钟（当前参数：每分钟 ≥ ${opts.minCalls} 次且 ≥ 均值 ${opts.multiplier} 倍）</p>`;
 
   renderAnomTable();
   renderAnomChart();
@@ -1049,7 +1049,7 @@ function bindEvents() {
   $("dateTo").addEventListener("change", applyRange);
 
   /* 异常分析参数调整 */
-  for (const id of ["anomWin", "anomMin", "anomMult"]) {
+  for (const id of ["anomGap", "anomMin", "anomMult"]) {
     $(id).addEventListener("change", runAnomaly);
   }
 

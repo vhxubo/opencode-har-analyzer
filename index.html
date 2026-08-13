@@ -138,10 +138,10 @@
     <!-- 异常分析：短时高频调用 -->
     <section class="card" id="anomalyCard">
       <div class="card-head">
-        <h2>异常分析 <span class="hint">短时高频调用：窗口内调用数 ≥ 均值倍率且 ≥ 最少次数</span></h2>
+        <h2>异常分析 <span class="hint">分钟级调用次数：某分钟调用数 ≥ 均值倍率且 ≥ 最少次数</span></h2>
         <div class="head-actions anom-opts">
-          <label class="opt">窗口 <input type="number" id="anomWin" min="1" max="60" step="1" value="5"> 分钟</label>
-          <label class="opt">最少 <input type="number" id="anomMin" min="1" max="1000" step="1" value="8"> 次</label>
+          <label class="opt">合并间隔 <input type="number" id="anomGap" min="0" max="60" step="1" value="1"> 分</label>
+          <label class="opt">最少 <input type="number" id="anomMin" min="1" max="1000" step="1" value="8"> 次/分</label>
           <label class="opt">倍率 <input type="number" id="anomMult" min="1" max="10" step="1" value="3"> ×</label>
         </div>
       </div>
