@@ -632,6 +632,7 @@ function renderChips() {
       renderTimeCharts();
       renderChartC();
       renderRecords();
+      runAnomaly();
     });
   });
 }
@@ -648,7 +649,9 @@ function runAnomaly() {
     minCalls: parseInt($("anomMin").value, 10) || 8,
     multiplier: parseInt($("anomMult").value, 10) || 3,
   };
-  anomEvents = detectAnomalies(recordsInRange(), state.result.keyMap, opts);
+  // 同时遵循全局日期区间与 key 筛选
+  const recs = recordsInRange().filter((r) => state.visible.has(r.keyID || r.keyId || ""));
+  anomEvents = detectAnomalies(recs, state.result.keyMap, opts);
   anomExpanded.clear();
   renderAnomaly(opts);
 }
@@ -674,7 +677,9 @@ function renderAnomaly(opts) {
           </div>`
         )
         .join("")}</div>`
-    : `<p class="empty-note">✓ 未检测到异常分钟（当前参数：每分钟 ≥ ${opts.minCalls} 次且 ≥ 均值 ${opts.multiplier} 倍）</p>`;
+    : !state.visible.size
+    ? `<p class="empty-note">⚠ 未选择任何 key，请在右侧「Key 筛选」面板勾选后再检测</p>`
+    : `<p class="empty-note">✓ 所选 key 与时间区间内未检测到异常分钟（当前参数：每分钟 ≥ ${opts.minCalls} 次且 ≥ 均值 ${opts.multiplier} 倍）</p>`;
 
   renderAnomTable();
   renderAnomChart();
