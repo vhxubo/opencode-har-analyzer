@@ -536,6 +536,27 @@ function renderChartD() {
 
 /* ---------- 渲染：key chips ---------- */
 
+/* 顶栏「Key 筛选」按钮：显示当前选中的 key 色点与计数 */
+function updateKeyToggle() {
+  const dots = $("kptDots");
+  const cnt = $("kptCount");
+  dots.innerHTML = "";
+  if (!state.result || !state.byKey.length) {
+    cnt.textContent = "";
+    return;
+  }
+  const rows = [...state.byKey].sort((a, b) => b.cost - a.cost);
+  const sel = rows.filter((a) => state.visible.has(a.keyId));
+  for (const a of sel) {
+    const d = document.createElement("span");
+    d.className = "kpt-dot";
+    d.style.background = state.colorOf.get(a.keyId) || "#64748c";
+    d.title = a.displayName;
+    dots.appendChild(d);
+  }
+  cnt.textContent = `${sel.length}/${rows.length}`;
+}
+
 function renderChips() {
   const rows = [...state.byKey].sort((a, b) => b.cost - a.cost);
   $("keyChips").innerHTML = rows
@@ -553,6 +574,7 @@ function renderChips() {
       if (state.visible.has(kid)) state.visible.delete(kid);
       else state.visible.add(kid);
       renderChips();
+      updateKeyToggle();
       renderTape();
       renderTimeCharts();
       renderChartC();
@@ -714,6 +736,7 @@ function renderAll() {
   renderChartC();
   renderChartD();
   renderChips();
+  updateKeyToggle();
   renderKeyMapTable();
   renderRecords();
   renderDaily();
@@ -792,6 +815,8 @@ function bindEvents() {
     $("harGuide").classList.remove("hidden");
     $("keyPanel").classList.add("hidden");
     setKeyPanel(false);
+    state.byKey = [];
+    updateKeyToggle();
     Object.values(charts).forEach((c) => c.dispose());
     chartResizeObs.forEach((ro) => ro.disconnect());
     chartResizeObs.clear();

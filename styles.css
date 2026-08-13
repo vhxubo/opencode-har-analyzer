@@ -131,6 +131,16 @@ body {
 .btn-ghost.active { border-color: var(--amber); color: var(--amber); }
 .btn-ghost.small { padding: 6px 11px; font-size: 12px; }
 
+/* 顶栏 Key 筛选按钮：色点 + 计数 */
+.kpt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.kpt-dots { display: inline-flex; align-items: center; gap: 3px; }
+.kpt-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.kpt-count { font-size: 11px; color: var(--text-3); }
+
 /* ---------- 页面骨架 ---------- */
 
 .page {
