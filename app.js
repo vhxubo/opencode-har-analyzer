@@ -64,22 +64,28 @@ function fmtBucket(bucket) {
   return bucket; // 已按本地时区分桶: "YYYY-MM-DD HH:00" 或 "YYYY-MM-DD"
 }
 
-/* 本地时区 YYYY-MM-DD */
+/* 本地时区 YYYY-MM-DD（日期部分） */
 function localDateStr(d) {
   const p = (x) => String(x).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-/* 按全局日期区间过滤调用明细（空串 = 不限） */
+/* 本地时区 YYYY-MM-DDTHH:mm:ss（精确到秒，datetime-local 格式） */
+function localDateTimeStr(d) {
+  const p = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/* 按全局时间区间过滤调用明细（空串 = 不限） */
 function recordsInRange() {
   const { start, end } = state.dateRange;
   if (!start && !end) return state.result.records;
   return state.result.records.filter((r) => {
     const d = new Date(r.timeCreated);
     if (isNaN(d)) return true;
-    const day = localDateStr(d);
-    if (start && day < start) return false;
-    if (end && day > end) return false;
+    const ts = localDateTimeStr(d);
+    if (start && ts < start) return false;
+    if (end && ts > end) return false;
     return true;
   });
 }
@@ -127,8 +133,8 @@ function processHar(har, name) {
       // 初始化全局日期区间：以调用明细的实际时间跨度为边界
       const times = result.records.map((r) => new Date(r.timeCreated)).filter((d) => !isNaN(d));
       if (times.length) {
-        state.rangeMin = localDateStr(new Date(Math.min(...times)));
-        state.rangeMax = localDateStr(new Date(Math.max(...times)));
+        state.rangeMin = localDateTimeStr(new Date(Math.min(...times)));
+        state.rangeMax = localDateTimeStr(new Date(Math.max(...times)));
         state.dateRange = { start: state.rangeMin, end: state.rangeMax };
         for (const id of ["dateFrom", "dateTo"]) {
           $(id).min = state.rangeMin;
@@ -749,9 +755,11 @@ function updateSortHeaders() {
 
 function renderDaily() {
   const tbody = document.querySelector("#dailyTable tbody");
+  const sDay = state.dateRange.start ? state.dateRange.start.slice(0, 10) : "";
+  const eDay = state.dateRange.end ? state.dateRange.end.slice(0, 10) : "";
   const rows = state.result.daily.filter((r) => {
-    if (state.dateRange.start && r.date < state.dateRange.start) return false;
-    if (state.dateRange.end && r.date > state.dateRange.end) return false;
+    if (sDay && r.date < sDay) return false;
+    if (eDay && r.date > eDay) return false;
     return true;
   });
   if (!rows.length) {
@@ -875,7 +883,7 @@ function bindEvents() {
     state.dateRange = { start: vf, end: vt };
     buildDerived();
     renderAll();
-    if (!recordsInRange().length) toast("所选日期区间内没有调用记录", true);
+    if (!recordsInRange().length) toast("所选时间区间内没有调用记录", true);
   }
   $("dateFrom").addEventListener("change", applyRange);
   $("dateTo").addEventListener("change", applyRange);

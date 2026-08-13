@@ -22,10 +22,10 @@
     </div>
   </div>
   <div class="topbar-actions">
-    <label class="daterange hidden" id="dateRange" title="全局日期区间（不能超过 HAR 数据时间跨度）">
-      <input type="date" id="dateFrom" aria-label="开始日期">
+    <label class="daterange hidden" id="dateRange" title="全局时间区间（精确到秒，不能超过 HAR 数据时间跨度）">
+      <input type="datetime-local" step="1" id="dateFrom" aria-label="开始时间">
       <span class="dr-sep">—</span>
-      <input type="date" id="dateTo" aria-label="结束日期">
+      <input type="datetime-local" step="1" id="dateTo" aria-label="结束时间">
     </label>
     <button id="keyPanelToggle" class="btn-ghost kpt-btn" type="button" aria-expanded="true">
       <span class="kpt-dots" id="kptDots"></span>

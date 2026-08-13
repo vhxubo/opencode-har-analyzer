@@ -106,7 +106,8 @@ body {
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
-.daterange input[type="date"] {
+.daterange input[type="date"],
+.daterange input[type="datetime-local"] {
   background: transparent;
   border: none;
   color: var(--text);
@@ -116,11 +117,14 @@ body {
   cursor: pointer;
   min-width: 0;
 }
-.daterange input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: pointer; }
-.daterange input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+.daterange input[type="date"]::-webkit-calendar-picker-indicator,
+.daterange input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: pointer; }
+.daterange input[type="date"]::-webkit-calendar-picker-indicator:hover,
+.daterange input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 .daterange .dr-sep { color: var(--text-3); flex: none; }
 @media (max-width: 900px) {
-  .daterange input[type="date"] { font-size: 11px; }
+  .daterange input[type="date"],
+  .daterange input[type="datetime-local"] { font-size: 11px; }
   .daterange { padding: 5px 7px; }
 }
 
