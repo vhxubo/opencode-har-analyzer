@@ -38,6 +38,9 @@ const state = {
   sortDir: "desc",
   page: 1,
   pageSize: 50,
+  dateRange: { start: "", end: "" }, // YYYY-MM-DD，空串表示不过滤
+  rangeMin: "",
+  rangeMax: "",
 };
 
 /* ---------- 格式化 ---------- */
@@ -59,6 +62,26 @@ function fmtTime(ts) {
 
 function fmtBucket(bucket) {
   return bucket; // 已按本地时区分桶: "YYYY-MM-DD HH:00" 或 "YYYY-MM-DD"
+}
+
+/* 本地时区 YYYY-MM-DD */
+function localDateStr(d) {
+  const p = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/* 按全局日期区间过滤调用明细（空串 = 不限） */
+function recordsInRange() {
+  const { start, end } = state.dateRange;
+  if (!start && !end) return state.result.records;
+  return state.result.records.filter((r) => {
+    const d = new Date(r.timeCreated);
+    if (isNaN(d)) return true;
+    const day = localDateStr(d);
+    if (start && day < start) return false;
+    if (end && day > end) return false;
+    return true;
+  });
 }
 
 function shortName(name, max = 24) {
@@ -101,6 +124,20 @@ function processHar(har, name) {
         throw new Error("未找到 opencode.ai/_server 的响应数据");
       }
       state.result = result;
+      // 初始化全局日期区间：以调用明细的实际时间跨度为边界
+      const times = result.records.map((r) => new Date(r.timeCreated)).filter((d) => !isNaN(d));
+      if (times.length) {
+        state.rangeMin = localDateStr(new Date(Math.min(...times)));
+        state.rangeMax = localDateStr(new Date(Math.max(...times)));
+        state.dateRange = { start: state.rangeMin, end: state.rangeMax };
+        for (const id of ["dateFrom", "dateTo"]) {
+          $(id).min = state.rangeMin;
+          $(id).max = state.rangeMax;
+        }
+        $("dateFrom").value = state.rangeMin;
+        $("dateTo").value = state.rangeMax;
+        $("dateRange").classList.remove("hidden");
+      }
       buildDerived();
       // 先显示容器，再渲染图表：否则 ECharts 初始化时容器宽度为 0
       $("dropzone").classList.add("hidden");
@@ -130,7 +167,8 @@ function processHar(har, name) {
 /* ---------- 派生数据 ---------- */
 
 function buildDerived() {
-  const { records, keyMap } = state.result;
+  const records = recordsInRange();
+  const { keyMap } = state.result;
   state.byKey = aggregateByKey(records, keyMap);
   state.byTime = aggregateByTime(records, keyMap, state.granularity);
   state.byModel = aggregateByModel(records, keyMap);
@@ -140,8 +178,10 @@ function buildDerived() {
   state.colorOf = new Map();
   sortedIds.forEach((kid, i) => state.colorOf.set(kid, KEY_COLORS[i % KEY_COLORS.length]));
 
-  // 默认全部可见；排序靠成本降序
-  state.visible = new Set(state.byKey.map((a) => a.keyId));
+  // 保留用户已选的 key；新增 key 默认可见
+  const ids = new Set(state.byKey.map((a) => a.keyId));
+  if (!state.visible.size && ids.size) state.visible = new Set(ids);
+  else state.visible = new Set([...state.visible].filter((k) => ids.has(k)));
 }
 
 /* ---------- ECharts 工具 ---------- */
@@ -218,22 +258,22 @@ function timeSeries(buckets, visibleKeys, valueFn, displayFn, stack) {
 /* ---------- 渲染：统计卡 ---------- */
 
 function renderStats() {
-  const { records } = state.result;
+  const recs = recordsInRange();
   const total = state.byKey.reduce(
     (s, a) => ({ cost: s.cost + a.cost, input: s.input + a.input, output: s.output + a.output }),
     { cost: 0, input: 0, output: 0 }
   );
-  const times = records.map((r) => new Date(r.timeCreated)).filter((d) => !isNaN(d));
+  const times = recs.map((r) => new Date(r.timeCreated)).filter((d) => !isNaN(d));
   const minT = times.length ? Math.min(...times) : null;
   const maxT = times.length ? Math.max(...times) : null;
 
   const cards = [
-    { k: "calls", label: "调用次数", value: fmtInt(records.length), sub: `server 请求 ${state.result.har.serverCalls} 次` },
+    { k: "calls", label: "调用次数", value: fmtInt(recs.length), sub: `server 请求 ${state.result.har.serverCalls} 次` },
     { k: "cost", label: costTitle(), value: fmtCost(total.cost), sub: state.costUnit === "usd" ? "按 1e-6 换算" : "除以 1e6 可得美元" },
     { k: "input", label: "输入 token", value: fmtInt(total.input), sub: "含缓存读取" },
     { k: "output", label: "输出 token", value: fmtInt(total.output), sub: "含推理 token" },
     { k: "keys", label: "涉及 key", value: fmtInt(state.result.keyMap.size), sub: `${state.byKey.length} 个产生调用` },
-    { k: "span", label: "时间跨度", value: minT && maxT ? `${new Date(minT).getFullYear()}-${String(new Date(minT).getMonth() + 1).padStart(2, "0")}-${String(new Date(minT).getDate()).padStart(2, "0")}` : "—", sub: minT && maxT ? `至 ${fmtTime(maxT)}` : "" },
+    { k: "span", label: "时间跨度", value: minT && maxT ? localDateStr(new Date(minT)) : "—", sub: minT && maxT ? `至 ${fmtTime(maxT)}` : "" },
   ];
   $("stats").innerHTML = cards
     .map(
@@ -251,7 +291,7 @@ function renderStats() {
 function renderTape() {
   const chart = initChart("tapeChart");
   if (!chart) return;
-  const hourly = aggregateByTime(state.result.records, state.result.keyMap, "hour");
+  const hourly = aggregateByTime(recordsInRange(), state.result.keyMap, "hour");
   const visibleKeys = state.visible;
   const buckets = hourly;
   const series = timeSeries(buckets, visibleKeys, (c) => c.calls, (v) => v, "tape");
@@ -626,7 +666,7 @@ function renderKeyMapTable() {
 
 function filteredRecords() {
   const q = state.search.trim().toLowerCase();
-  return state.result.records.filter((r) => {
+  return recordsInRange().filter((r) => {
     const kid = r.keyID || r.keyId || "";
     if (!state.visible.has(kid)) return false;
     if (!q) return true;
@@ -709,7 +749,11 @@ function updateSortHeaders() {
 
 function renderDaily() {
   const tbody = document.querySelector("#dailyTable tbody");
-  const rows = state.result.daily;
+  const rows = state.result.daily.filter((r) => {
+    if (state.dateRange.start && r.date < state.dateRange.start) return false;
+    if (state.dateRange.end && r.date > state.dateRange.end) return false;
+    return true;
+  });
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="4" class="meta" style="text-align:center;padding:18px">该 HAR 未包含服务端每日汇总（server-fn:0）</td></tr>`;
     return;
@@ -815,6 +859,27 @@ function bindEvents() {
   });
   $("kpClose").addEventListener("click", () => setKeyPanel(false));
 
+  /* 全局日期区间：钳制在 HAR 数据跨度内，超出自动修正 */
+  function applyRange() {
+    const from = $("dateFrom");
+    const to = $("dateTo");
+    let vf = from.value || state.rangeMin;
+    let vt = to.value || state.rangeMax;
+    if (vf < state.rangeMin) vf = state.rangeMin;
+    if (vf > state.rangeMax) vf = state.rangeMax;
+    if (vt < state.rangeMin) vt = state.rangeMin;
+    if (vt > state.rangeMax) vt = state.rangeMax;
+    if (vf > vt) [vf, vt] = [vt, vf]; // 开始晚于结束则交换
+    from.value = vf;
+    to.value = vt;
+    state.dateRange = { start: vf, end: vt };
+    buildDerived();
+    renderAll();
+    if (!recordsInRange().length) toast("所选日期区间内没有调用记录", true);
+  }
+  $("dateFrom").addEventListener("change", applyRange);
+  $("dateTo").addEventListener("change", applyRange);
+
   $("reloadBtn").addEventListener("click", () => {
     state.result = null;
     $("result").classList.add("hidden");
@@ -823,6 +888,8 @@ function bindEvents() {
     $("keyPanel").classList.add("hidden");
     setKeyPanel(false);
     state.byKey = [];
+    state.dateRange = { start: "", end: "" };
+    $("dateRange").classList.add("hidden");
     updateKeyToggle();
     Object.values(charts).forEach((c) => c.dispose());
     chartResizeObs.forEach((ro) => ro.disconnect());
@@ -836,7 +903,7 @@ function bindEvents() {
     if (!btn) return;
     state.granularity = btn.dataset.g;
     document.querySelectorAll("#granularitySeg button").forEach((b) => b.classList.toggle("active", b === btn));
-    state.byTime = aggregateByTime(state.result.records, state.result.keyMap, state.granularity);
+    state.byTime = aggregateByTime(recordsInRange(), state.result.keyMap, state.granularity);
     renderTimeCharts();
   });
 

@@ -22,6 +22,11 @@
     </div>
   </div>
   <div class="topbar-actions">
+    <label class="daterange hidden" id="dateRange" title="全局日期区间（不能超过 HAR 数据时间跨度）">
+      <input type="date" id="dateFrom" aria-label="开始日期">
+      <span class="dr-sep">—</span>
+      <input type="date" id="dateTo" aria-label="结束日期">
+    </label>
     <button id="keyPanelToggle" class="btn-ghost kpt-btn" type="button" aria-expanded="true">
       <span class="kpt-dots" id="kptDots"></span>
       <span>Key 筛选</span>

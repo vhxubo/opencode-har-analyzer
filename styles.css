@@ -75,6 +75,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
   padding: 14px clamp(16px, 4vw, 40px);
   background: rgba(10, 14, 20, 0.82);
   backdrop-filter: blur(12px);
@@ -94,6 +95,34 @@ body {
 .brand-sub { margin: 2px 0 0; font-size: 12px; color: var(--text-3); white-space: nowrap; }
 
 .topbar-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* 全局日期区间选择 */
+.daterange {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.daterange input[type="date"] {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 2px 2px;
+  cursor: pointer;
+  min-width: 0;
+}
+.daterange input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: pointer; }
+.daterange input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+.daterange .dr-sep { color: var(--text-3); flex: none; }
+@media (max-width: 900px) {
+  .daterange input[type="date"] { font-size: 11px; }
+  .daterange { padding: 5px 7px; }
+}
 
 /* ---------- 按钮 ---------- */
 
