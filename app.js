@@ -636,6 +636,165 @@ function renderChips() {
   });
 }
 
+/* ---------- 渲染：异常分析 ---------- */
+
+let anomEvents = [];
+let anomExpanded = new Set(); // 展开的行索引
+
+function runAnomaly() {
+  if (!state.result) return;
+  const opts = {
+    windowMin: parseInt($("anomWin").value, 10) || 5,
+    minCalls: parseInt($("anomMin").value, 10) || 8,
+    multiplier: parseInt($("anomMult").value, 10) || 3,
+  };
+  anomEvents = detectAnomalies(recordsInRange(), state.result.keyMap, opts);
+  anomExpanded.clear();
+  renderAnomaly(opts);
+}
+
+function renderAnomaly(opts) {
+  // 摘要卡
+  const keys = new Set(anomEvents.map((e) => e.keyId));
+  const totalCalls = anomEvents.reduce((s, e) => s + e.calls, 0);
+  const maxRate = anomEvents.length ? Math.max(...anomEvents.map((e) => e.ratePerMin)) : 0;
+  const cards = [
+    { k: "calls", label: "异常窗口", value: fmtInt(anomEvents.length), sub: "短时高频事件" },
+    { k: "keys", label: "涉及 key", value: fmtInt(keys.size), sub: `窗口 ≥ ${opts.windowMin} 分钟` },
+    { k: "cost", label: "异常调用数", value: fmtInt(totalCalls), sub: "窗口内合计" },
+    { k: "span", label: "最高频率", value: maxRate ? maxRate.toFixed(1) : "—", sub: "次 / 分钟" },
+  ];
+  $("anomSummary").innerHTML = anomEvents.length
+    ? `<div class="stats">${cards
+        .map(
+          (c) => `<div class="stat" style="--stat-accent:${STAT_ACCENTS[c.k]}">
+            <div class="stat-label">${c.label}</div>
+            <div class="stat-value">${c.value}</div>
+            <div class="stat-sub">${c.sub}</div>
+          </div>`
+        )
+        .join("")}</div>`
+    : `<p class="empty-note">✓ 未检测到异常窗口（当前参数：${opts.windowMin} 分钟 ≥ ${opts.minCalls} 次且 ≥ 均值 ${opts.multiplier} 倍）</p>`;
+
+  renderAnomTable();
+  renderAnomChart();
+}
+
+function renderAnomTable() {
+  const tbody = document.querySelector("#anomTable tbody");
+  if (!anomEvents.length) {
+    tbody.innerHTML = "";
+    return;
+  }
+  tbody.innerHTML = anomEvents
+    .map((e, idx) => {
+      const color = state.colorOf.get(e.keyId) || "#64748c";
+      const models = e.models.map(([m, c]) => `${m}×${c}`).join(" · ");
+      const range = `${fmtTime(e.startIso)} ～ ${fmtTime(e.endIso)}`;
+      return `<tr class="anom-row" data-idx="${idx}">
+        <td><button class="anom-toggle" type="button" aria-label="展开详情">${anomExpanded.has(idx) ? "▾" : "▸"}</button></td>
+        <td class="td-time">${range}<br><span class="kc-id">持续 ${((e.end - e.start) / 1000).toFixed(0)} 秒</span></td>
+        <td>
+          <div class="key-cell">
+            <span class="dot" style="background:${color}"></span>
+            <span><span class="kc-name">${e.displayName}</span><span class="kc-id">${e.keyId}</span></span>
+          </div>
+        </td>
+        <td class="td-num" style="color:var(--red);font-weight:600">${fmtInt(e.calls)}</td>
+        <td class="td-num">${e.ratePerMin.toFixed(1)}</td>
+        <td class="mono-cell" style="font-size:11px;color:var(--text-2)">${models}</td>
+        <td class="td-num">${e.pctOfKey}%</td>
+      </tr>` + (anomExpanded.has(idx) ? renderAnomDetail(e, idx) : "");
+    })
+    .join("");
+
+  tbody.querySelectorAll(".anom-row").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      const idx = parseInt(tr.dataset.idx, 10);
+      if (anomExpanded.has(idx)) anomExpanded.delete(idx);
+      else anomExpanded.add(idx);
+      renderAnomTable();
+    });
+  });
+}
+
+function renderAnomDetail(e, idx) {
+  const recs = e.records.slice(0, 20);
+  const rows = recs
+    .map(
+      (r) => `<tr class="anom-detail">
+        <td></td>
+        <td class="td-time">${fmtTime(r.timeCreated)}</td>
+        <td class="mono-cell">${r.model || "—"}</td>
+        <td class="td-num">${fmtInt(r.inputTokens)} / ${fmtInt(r.outputTokens)}</td>
+        <td class="td-num">${fmtCost(r.cost)}</td>
+        <td class="mono-cell" style="color:var(--text-3)" title="${r.id}">${shortName(r.id, 20)}</td>
+        <td></td>
+      </tr>`
+    )
+    .join("");
+  const more = e.records.length > 20 ? `<tr class="anom-detail"><td colspan="7" class="meta" style="text-align:center">… 另有 ${e.records.length - 20} 条，共 ${e.records.length} 条</td></tr>` : "";
+  return `<tr class="anom-detail-head"><td colspan="7" class="meta">窗口内调用明细（前 20 条 · 时间 / 模型 / 输入·输出 token / 成本 / id）</td></tr>` + rows + more;
+}
+
+function renderAnomChart() {
+  const chart = initChart("anomChart");
+  if (!chart) return;
+  if (!anomEvents.length) {
+    chart.clear();
+    return;
+  }
+  const pad = (x) => String(x).padStart(2, "0");
+  chart.setOption(
+    {
+      animation: !REDUCED,
+      tooltip: baseTooltip({
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter(params) {
+          const e = anomEvents[params[0].dataIndex];
+          return `<div style="font-weight:600;margin-bottom:4px">${e.displayName}</div>
+            <div class="meta">${fmtTime(e.startIso)} ～ ${fmtTime(e.endIso)}</div>
+            <div style="margin-top:6px">调用 <b style="font-family:var(--font-mono)">${fmtInt(e.calls)}</b> 次 · 频率 ${e.ratePerMin.toFixed(1)} 次/分</div>
+            <div style="color:#9aa8bc;font-size:11px;margin-top:4px">${e.models.map(([m, c]) => `${m}×${c}`).join(" · ")}</div>`;
+        },
+      }),
+      grid: { left: 46, right: 16, top: 12, bottom: 60 },
+      xAxis: {
+        type: "category",
+        data: anomEvents.map((e) => {
+          const d = new Date(e.start);
+          return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }),
+        axisLine: { lineStyle: { color: "#31415c" } },
+        axisTick: { show: false },
+        axisLabel: { color: "#9aa8bc", fontSize: 10, fontFamily: "JetBrains Mono", rotate: anomEvents.length > 6 ? 45 : 0 },
+      },
+      yAxis: {
+        type: "value",
+        name: "调用次数",
+        nameTextStyle: { color: "#64748c", fontSize: 10 },
+        axisLabel: { color: "#9aa8bc", fontSize: 10, fontFamily: "JetBrains Mono" },
+        splitLine: { lineStyle: { color: "rgba(49,65,92,0.35)" } },
+      },
+      series: [
+        {
+          name: "异常窗口",
+          type: "bar",
+          barMaxWidth: 34,
+          data: anomEvents.map((e) => e.calls),
+          itemStyle: {
+            borderRadius: [3, 3, 0, 0],
+            color: (p) => state.colorOf.get(anomEvents[p.dataIndex].keyId) || "#e06a74",
+          },
+          label: { show: anomEvents.length <= 12, position: "top", color: "#9aa8bc", fontSize: 10, fontFamily: "JetBrains Mono" },
+        },
+      ],
+    },
+    true
+  );
+}
+
 /* ---------- 渲染：key 映射表 ---------- */
 
 function renderKeyMapTable() {
@@ -799,6 +958,7 @@ function renderAll() {
   renderKeyMapTable();
   renderRecords();
   renderDaily();
+  runAnomaly();
 }
 
 /* ---------- Key 悬浮面板 ---------- */
@@ -887,6 +1047,11 @@ function bindEvents() {
   }
   $("dateFrom").addEventListener("change", applyRange);
   $("dateTo").addEventListener("change", applyRange);
+
+  /* 异常分析参数调整 */
+  for (const id of ["anomWin", "anomMin", "anomMult"]) {
+    $(id).addEventListener("change", runAnomaly);
+  }
 
   $("reloadBtn").addEventListener("click", () => {
     state.result = null;

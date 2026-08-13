@@ -628,6 +628,56 @@ body.panel-open .page { padding-right: calc(clamp(16px, 4vw, 40px) + 256px); }
   body.panel-open .page { padding-right: calc(16px + 224px); }
 }
 
+/* ---------- 异常分析 ---------- */
+
+.anom-opts { gap: 6px; }
+.anom-opts .opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.anom-opts .opt input[type="number"] {
+  width: 56px;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.anom-opts .opt input[type="number"]:focus { outline: none; border-color: var(--amber); }
+
+.anom-summary { margin-bottom: 14px; }
+.anom-summary .stats { margin-bottom: 0; }
+.empty-note {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--teal);
+  font-size: 13px;
+}
+
+.anom-row { cursor: pointer; }
+.anom-toggle {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+}
+.anom-row:hover .anom-toggle { color: var(--amber); }
+.anom-detail-head td {
+  background: rgba(110, 168, 255, 0.05);
+  color: var(--text-3);
+  font-size: 11px;
+}
+.anom-detail td { background: rgba(18, 25, 38, 0.5); color: var(--text-2); font-size: 12px; }
+
 /* ---------- 页脚 ---------- */
 
 .foot {
