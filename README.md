@@ -1,7 +1,7 @@
 # OpenCode AI 用量台 · HAR 分析器
 
 解析 `opencode.ai/_server` 接口的 HAR 抓包数据，还原每个 **API key（key_xxx）** 的调用记录与消耗。
-自动识别 `key_xxx → displayName` 映射、逐次调用明细、分钟/小时/天级聚合图表，并内置**异常分析**（分钟级高频调用检测）。
+自动识别 `key_xxx → displayName` 映射、逐次调用明细、分钟/小时/天级聚合图表，并内置**异常分析**（分钟级高频调用检测）与**测活标注**（短输入短输出调用识别）。
 
 > 纯静态站点，全程浏览器本地解析，文件不会上传。可部署到 GitHub Pages。
 
@@ -104,6 +104,7 @@ python3 parse_har.py opencode.ai.har --json out.json --csv records.csv   # 导�
   - 异常时间线图表：每事件调用次数柱状，按 key 着色；
 - **测活标注**：识别 `input ≤ 阈值 且 output ≤ 阈值` 的调用（典型如 ping / hi / hello 探活请求），按 key 聚合为表格：测活次数、占该 key 总调用比例、模型分布、token、成本，可展开明细；
 - **调用明细表**新增「标注」列，每条短输入短输出记录以 `测活` 徽标标注；导出 CSV 附带 `liveness` 列（1/0）；
+- **Python 命令行**同步支持：控制台输出「测活标注」汇总（次数 / 占该 key 比例 / 成本），`--json` 导出附带 `liveness` 数组；
 - **联动**：遵循全局 key 与时间区间筛选；无异常 / 未选 key 分别提示。
 
 ### 7. 调用明细表
@@ -148,7 +149,7 @@ python3 parse_har.py opencode.ai.har --json out.json --csv records.csv   # 导�
 opencode-har-analyzer/
 ├── index.html                # Web 页面（上传 HAR → 表格 + 图表 + 异常分析）
 ├── styles.css                # 设计系统（深色仪表盘主题）
-├── analyzer.js               # 前端解析引擎（$R 序列化 + 聚合 + 异常检测，纯逻辑）
+├── analyzer.js               # 前端解析引擎（$R 序列化 + 聚合 + 异常检测 + 测活标注，纯逻辑）
 ├── app.js                    # UI 逻辑（ECharts、分页、筛选、悬浮面板、异常模块）
 ├── parse_har.py              # Python 命令行分析脚本（同一套解析逻辑）
 ├── .github/workflows/
