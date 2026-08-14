@@ -143,6 +143,7 @@
           <label class="opt">合并间隔 <input type="number" id="anomGap" min="0" max="60" step="1" value="1"> 分</label>
           <label class="opt">最少 <input type="number" id="anomMin" min="1" max="1000" step="1" value="8"> 次/分</label>
           <label class="opt">倍率 <input type="number" id="anomMult" min="1" max="10" step="1" value="3"> ×</label>
+          <span class="opt-divider">测活标注：输入 ≤ <input type="number" id="liveIn" min="0" max="100000" step="1" value="100">、输出 ≤ <input type="number" id="liveOut" min="0" max="100000" step="1" value="100"> token</span>
         </div>
       </div>
       <div id="anomSummary" class="anom-summary"></div>
@@ -155,6 +156,18 @@
         </table>
       </div>
       <div id="anomChart" class="chart"></div>
+      <div class="card-head liveness-head">
+        <h3>测活标注 <span class="hint">短输入短输出调用：input ≤ 阈值 且 output ≤ 阈值</span></h3>
+      </div>
+      <div id="liveSummary" class="anom-summary"></div>
+      <div class="table-scroll">
+        <table id="livenessTable">
+          <thead>
+            <tr><th style="width:30px"></th><th>时间窗口</th><th>Key</th><th class="num">测活次数</th><th class="num">占该 key</th><th>模型分布</th><th class="num">输入 token</th><th class="num">输出 token</th><th class="num">成本</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- key 全局筛选悬浮面板 -->
@@ -196,6 +209,7 @@
               <th class="num">缓存读取</th>
               <th data-sort="cost" class="sortable num">成本</th>
               <th>Plan</th>
+              <th>标注</th>
               <th>记录 ID</th>
             </tr>
           </thead>

@@ -641,19 +641,31 @@ function renderChips() {
 
 let anomEvents = [];
 let anomExpanded = new Set(); // 展开的行索引
+let anomOpts = {};           // 异常检测当前参数
+let livenessOpts = { maxInput: 100, maxOutput: 100 }; // 测活阈值
+let livenessRows = [];
+let livenessExpanded = new Set(); // 展开的行索引
 
 function runAnomaly() {
   if (!state.result) return;
-  const opts = {
+  anomOpts = {
     mergeGapMin: parseInt($("anomGap").value, 10) || 1,
     minCalls: parseInt($("anomMin").value, 10) || 8,
     multiplier: parseInt($("anomMult").value, 10) || 3,
   };
+  livenessOpts = {
+    maxInput: parseInt($("liveIn").value, 10),
+    maxOutput: parseInt($("liveOut").value, 10),
+  };
+  if (!(livenessOpts.maxInput >= 0)) livenessOpts.maxInput = 100;
+  if (!(livenessOpts.maxOutput >= 0)) livenessOpts.maxOutput = 100;
   // 同时遵循全局日期区间与 key 筛选
   const recs = recordsInRange().filter((r) => state.visible.has(r.keyID || r.keyId || ""));
-  anomEvents = detectAnomalies(recs, state.result.keyMap, opts);
+  anomEvents = detectAnomalies(recs, state.result.keyMap, anomOpts);
+  livenessRows = detectLiveness(recs, state.result.keyMap, livenessOpts);
   anomExpanded.clear();
-  renderAnomaly(opts);
+  livenessExpanded.clear();
+  renderAnomaly(anomOpts);
 }
 
 function renderAnomaly(opts) {
@@ -683,6 +695,7 @@ function renderAnomaly(opts) {
 
   renderAnomTable();
   renderAnomChart();
+  renderLiveness();
 }
 
 function renderAnomTable() {
@@ -730,7 +743,7 @@ function renderAnomDetail(e, idx) {
       (r) => `<tr class="anom-detail">
         <td></td>
         <td class="td-time">${fmtTime(r.timeCreated)}</td>
-        <td class="mono-cell">${r.model || "—"}</td>
+        <td class="mono-cell">${r.model || "—"}${isLivenessCall(r, livenessOpts) ? ' <span class="badge liveness">测活</span>' : ""}</td>
         <td class="td-num">${fmtInt(r.inputTokens)} / ${fmtInt(r.outputTokens)}</td>
         <td class="td-num">${fmtCost(r.cost)}</td>
         <td class="mono-cell" style="color:var(--text-3)" title="${r.id}">${shortName(r.id, 20)}</td>
@@ -739,7 +752,7 @@ function renderAnomDetail(e, idx) {
     )
     .join("");
   const more = e.records.length > 20 ? `<tr class="anom-detail"><td colspan="7" class="meta" style="text-align:center">… 另有 ${e.records.length - 20} 条，共 ${e.records.length} 条</td></tr>` : "";
-  return `<tr class="anom-detail-head"><td colspan="7" class="meta">窗口内调用明细（前 20 条 · 时间 / 模型 / 输入·输出 token / 成本 / id）</td></tr>` + rows + more;
+  return `<tr class="anom-detail-head"><td colspan="7" class="meta">窗口内调用明细（前 20 条 · 时间 / 模型 / 输入·输出 token / 成本 / id，<span class="badge liveness">测活</span> = 短输入短输出）</td></tr>` + rows + more;
 }
 
 function renderAnomChart() {
@@ -798,6 +811,97 @@ function renderAnomChart() {
     },
     true
   );
+}
+
+/* ---------- 渲染：测活标注（短输入短输出） ---------- */
+
+function renderLiveness() {
+  const totalCalls = livenessRows.reduce((s, r) => s + r.calls, 0);
+  const totalCost = livenessRows.reduce((s, r) => s + r.cost, 0);
+  const totalInput = livenessRows.reduce((s, r) => s + r.input, 0);
+  const totalOutput = livenessRows.reduce((s, r) => s + r.output, 0);
+  const maxPct = livenessRows.length ? Math.max(...livenessRows.map((r) => r.pctOfKey)) : 0;
+  const cards = [
+    { k: "calls", label: "测活调用", value: fmtInt(totalCalls), sub: `输入≤${livenessOpts.maxInput} 且 输出≤${livenessOpts.maxOutput} token` },
+    { k: "keys", label: "涉及 key", value: fmtInt(livenessRows.length), sub: "短输入短输出调用" },
+    { k: "cost", label: "测活成本", value: fmtCost(totalCost), sub: `输入 ${fmtInt(totalInput)} · 输出 ${fmtInt(totalOutput)} token` },
+    { k: "span", label: "最高占比", value: maxPct ? `${maxPct}%` : "—", sub: "占该 key 总调用" },
+  ];
+  $("liveSummary").innerHTML = totalCalls
+    ? `<div class="stats">${cards
+        .map(
+          (c) => `<div class="stat" style="--stat-accent:${STAT_ACCENTS[c.k]}">
+            <div class="stat-label">${c.label}</div>
+            <div class="stat-value">${c.value}</div>
+            <div class="stat-sub">${c.sub}</div>
+          </div>`
+        )
+        .join("")}</div>`
+    : !state.visible.size
+    ? `<p class="empty-note">⚠ 未选择任何 key，请在右侧「Key 筛选」面板勾选后再检测</p>`
+    : `<p class="empty-note">✓ 所选 key 与时间区间内未发现短输入短输出调用（输入 ≤ ${livenessOpts.maxInput} 且 输出 ≤ ${livenessOpts.maxOutput} token）</p>`;
+  renderLivenessTable();
+}
+
+function renderLivenessTable() {
+  const tbody = document.querySelector("#livenessTable tbody");
+  if (!livenessRows.length) {
+    tbody.innerHTML = "";
+    return;
+  }
+  tbody.innerHTML = livenessRows
+    .map((r, idx) => {
+      const color = state.colorOf.get(r.keyId) || "#64748c";
+      const models = r.models.map(([m, c]) => `${m}×${c}`).join(" · ");
+      const range = `${fmtTime(r.startIso)} ～ ${fmtTime(r.endIso)}`;
+      return `<tr class="live-row" data-idx="${idx}">
+        <td><button class="anom-toggle" type="button" aria-label="展开详情">${livenessExpanded.has(idx) ? "▾" : "▸"}</button></td>
+        <td class="td-time">${range}<br><span class="kc-id">共 ${fmtInt(r.records.length)} 条</span></td>
+        <td>
+          <div class="key-cell">
+            <span class="dot" style="background:${color}"></span>
+            <span><span class="kc-name">${r.displayName}</span><span class="kc-id">${r.keyId}</span></span>
+          </div>
+        </td>
+        <td class="td-num" style="color:var(--amber);font-weight:600">${fmtInt(r.calls)}</td>
+        <td class="td-num">${r.pctOfKey}%</td>
+        <td class="mono-cell" style="font-size:11px;color:var(--text-2)">${models}</td>
+        <td class="td-num">${fmtInt(r.input)}</td>
+        <td class="td-num">${fmtInt(r.output)}</td>
+        <td class="td-num" style="color:var(--amber)">${fmtCost(r.cost)}</td>
+      </tr>` + (livenessExpanded.has(idx) ? renderLivenessDetail(r, idx) : "");
+    })
+    .join("");
+
+  tbody.querySelectorAll(".live-row").forEach((tr) => {
+    tr.addEventListener("click", () => {
+      const idx = parseInt(tr.dataset.idx, 10);
+      if (livenessExpanded.has(idx)) livenessExpanded.delete(idx);
+      else livenessExpanded.add(idx);
+      renderLivenessTable();
+    });
+  });
+}
+
+function renderLivenessDetail(r, idx) {
+  const recs = r.records.slice(0, 20);
+  const rows = recs
+    .map(
+      (rec) => `<tr class="anom-detail">
+        <td></td>
+        <td class="td-time">${fmtTime(rec.timeCreated)}</td>
+        <td class="mono-cell">${rec.model || "—"}</td>
+        <td class="td-num">${fmtInt(rec.inputTokens)} / ${fmtInt(rec.outputTokens)}</td>
+        <td class="td-num"></td>
+        <td class="mono-cell" style="font-size:11px;color:var(--text-3)" title="${rec.id}">${shortName(rec.id, 20)}</td>
+        <td class="td-num">${fmtInt(rec.inputTokens)}</td>
+        <td class="td-num">${fmtInt(rec.outputTokens)}</td>
+        <td class="td-num" style="color:var(--amber)">${fmtCost(rec.cost)}</td>
+      </tr>`
+    )
+    .join("");
+  const more = r.records.length > 20 ? `<tr class="anom-detail"><td colspan="9" class="meta" style="text-align:center">… 另有 ${r.records.length - 20} 条，共 ${r.records.length} 条</td></tr>` : "";
+  return `<tr class="anom-detail-head"><td colspan="9" class="meta">测活调用明细（前 20 条 · 时间 / 模型 / 输入·输出 token / id / 成本）</td></tr>` + rows + more;
 }
 
 /* ---------- 渲染：key 映射表 ---------- */
@@ -896,6 +1000,7 @@ function renderRecords() {
         <td class="td-num" style="color:var(--text-3)">${fmtInt(r.cacheReadTokens)}</td>
         <td class="td-num" style="color:var(--amber)">${fmtCost(r.cost)}</td>
         <td>${plan !== "—" ? `<span class="badge plan">${plan}</span>` : "—"}</td>
+        <td>${isLivenessCall(r, livenessOpts) ? '<span class="badge liveness">测活</span>' : "—"}</td>
         <td class="mono-cell" style="color:var(--text-3)" title="${r.id}">${shortName(r.id, 24)}</td>
       </tr>`;
     })
@@ -980,14 +1085,14 @@ function setKeyPanel(open) {
 function exportCSV() {
   const rows = filteredRecords();
   if (!rows.length) { toast("没有可导出的数据", true); return; }
-  const head = ["time", "displayName", "keyID", "model", "provider", "inputTokens", "outputTokens", "reasoningTokens", "cacheReadTokens", "cost", "plan", "id"];
+  const head = ["time", "displayName", "keyID", "model", "provider", "inputTokens", "outputTokens", "reasoningTokens", "cacheReadTokens", "cost", "plan", "liveness", "id"];
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const lines = [head.map(esc).join(",")];
   for (const r of rows) {
     const kid = r.keyID || r.keyId || "";
     const info = state.result.keyMap.get(kid) || {};
     lines.push(
-      [r.timeCreated, info.displayName || kid, kid, r.model, r.provider, r.inputTokens, r.outputTokens, r.reasoningTokens, r.cacheReadTokens, r.cost, (r.enrichment && r.enrichment.plan) || "", r.id].map(esc).join(",")
+      [r.timeCreated, info.displayName || kid, kid, r.model, r.provider, r.inputTokens, r.outputTokens, r.reasoningTokens, r.cacheReadTokens, r.cost, (r.enrichment && r.enrichment.plan) || "", isLivenessCall(r, livenessOpts) ? 1 : 0, r.id].map(esc).join(",")
     );
   }
   const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
@@ -1053,9 +1158,12 @@ function bindEvents() {
   $("dateFrom").addEventListener("change", applyRange);
   $("dateTo").addEventListener("change", applyRange);
 
-  /* 异常分析参数调整 */
-  for (const id of ["anomGap", "anomMin", "anomMult"]) {
-    $(id).addEventListener("change", runAnomaly);
+  /* 异常分析参数调整 + 测活阈值调整 */
+  for (const id of ["anomGap", "anomMin", "anomMult", "liveIn", "liveOut"]) {
+    $(id).addEventListener("change", () => {
+      runAnomaly();
+      renderRecords(); // 同步刷新调用明细表的测活标注
+    });
   }
 
   $("reloadBtn").addEventListener("click", () => {

@@ -434,13 +434,79 @@ function detectAnomalies(records, keyMap, opts = {}) {
   return events;
 }
 
+/* ---------------- 测活检测：短输入短输出标注 ---------------- */
+
+/**
+ * 判断单条调用是否为「测活」类调用：
+ * 输入与输出 token 都极短（≤ 阈值），典型如 ping / hi / hello 等探活请求。
+ * 只出现输入或输出的一方时，缺失方按 0 处理；双方都缺失时不判为测活。
+ */
+function isLivenessCall(r, opts = {}) {
+  const maxInput = opts.maxInput ?? 100;
+  const maxOutput = opts.maxOutput ?? 100;
+  const hasIn = r.inputTokens != null && r.inputTokens !== "";
+  const hasOut = r.outputTokens != null && r.outputTokens !== "";
+  if (!hasIn && !hasOut) return false;
+  const input = Number(r.inputTokens) || 0;
+  const output = Number(r.outputTokens) || 0;
+  return input <= maxInput && output <= maxOutput;
+}
+
+function safeIso(ts) {
+  const d = new Date(ts);
+  return isNaN(d) ? "" : d.toISOString();
+}
+
+/**
+ * 按 key 聚合「测活」调用：
+ *   - 只统计输入、输出同时很短（≤ 阈值）的记录；
+ *   - 输出每 key 的测活次数、成本、token、模型分布、时间跨度与占该 key 总量比例；
+ *   - records 为按时间升序的原始记录，供展开明细使用。
+ */
+function detectLiveness(records, keyMap, opts = {}) {
+  const groups = new Map(); // keyId -> 测活记录列表
+  const totals = new Map(); // keyId -> 该 key 总调用数
+  for (const r of records) {
+    const kid = r.keyID || r.keyId || "";
+    totals.set(kid, (totals.get(kid) || 0) + 1);
+    if (!isLivenessCall(r, opts)) continue;
+    if (!groups.has(kid)) groups.set(kid, []);
+    groups.get(kid).push(r);
+  }
+
+  const rows = [];
+  for (const [kid, recs] of groups) {
+    recs.sort((a, b) => String(a.timeCreated).localeCompare(String(b.timeCreated)));
+    const input = recs.reduce((s, r) => s + (Number(r.inputTokens) || 0), 0);
+    const output = recs.reduce((s, r) => s + (Number(r.outputTokens) || 0), 0);
+    const cost = recs.reduce((s, r) => s + (r.cost || 0), 0);
+    const models = {};
+    for (const r of recs) models[r.model || "?"] = (models[r.model || "?"] || 0) + 1;
+    const total = totals.get(kid) || 0;
+    rows.push({
+      keyId: kid,
+      displayName: displayNameOf(keyMap, kid),
+      calls: recs.length,
+      input, output, cost,
+      models: Object.entries(models).sort((a, b) => b[1] - a[1]),
+      totalCalls: total,
+      pctOfKey: total ? Math.round((recs.length / total) * 1000) / 10 : 0,
+      startIso: safeIso(recs[0].timeCreated),
+      endIso: safeIso(recs[recs.length - 1].timeCreated),
+      records: recs,
+    });
+  }
+  rows.sort((a, b) => b.calls - a.calls);
+  return rows;
+}
+
 /* ---------------- 导出（Node / 浏览器通用） ---------------- */
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     RParser, parseServerResponse, analyzeHar,
     aggregateByKey, aggregateByTime, aggregateByModel,
-    detectAnomalies,
+    detectAnomalies, isLivenessCall, detectLiveness,
     displayNameOf, shortKey, stripAccount, timeBucketKey,
   };
 }

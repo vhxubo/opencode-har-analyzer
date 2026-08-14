@@ -18,6 +18,7 @@ opencode.ai HAR 用量分析脚本
 import argparse
 import csv
 import json
+import math
 import re
 import sys
 from collections import defaultdict
@@ -358,6 +359,100 @@ def summarize(result: dict) -> dict:
     }
 
 
+def detect_anomalies(records, key_map, min_calls=8, multiplier=3, merge_gap_min=1):
+    """分钟级高频调用检测（与前端 detectAnomalies 同逻辑）。"""
+    groups = defaultdict(list)
+    for r in records:
+        groups[r.get("keyID") or r.get("keyId")].append(r)
+
+    events = []
+    for kid, lst in groups.items():
+        if len(lst) < min_calls:
+            continue
+        bucket = defaultdict(lambda: {"count": 0, "recs": [], "ts": None})
+        for r in lst:
+            t = r.get("timeCreated")
+            if not t:
+                continue
+            dt = datetime.fromisoformat(t.replace("Z", "+00:00")).astimezone()
+            mkey = dt.strftime("%Y-%m-%dT%H:%M")
+            b = bucket[mkey]
+            b["count"] += 1
+            b["recs"].append(r)
+            b["ts"] = dt.timestamp() * 1000
+        if not bucket:
+            continue
+        times = sorted(b["ts"] for b in bucket.values())
+        span_min = (times[-1] - times[0]) / 60000 + 1
+        avg = len(lst) / span_min if span_min > 0 else 0
+        threshold = max(min_calls, math.ceil(avg * multiplier))
+        abnormal = sorted(
+            [b for b in bucket.values() if b["count"] >= threshold],
+            key=lambda b: b["ts"],
+        )
+        merged = []
+        for b in abnormal:
+            if merged and (b["ts"] - merged[-1]["end"]) / 60000 <= merge_gap_min:
+                last = merged[-1]
+                last["end"] = b["ts"]
+                last["calls"] += b["count"]
+                last["recs"].extend(b["recs"])
+            else:
+                merged.append({"start": b["ts"], "end": b["ts"], "calls": b["count"], "recs": list(b["recs"])})
+        for ev in merged:
+            minutes = max(1, (ev["end"] - ev["start"]) / 60000 + 1)
+            events.append({
+                "keyId": kid,
+                "displayName": key_map.get(kid, {}).get("displayName", kid),
+                "start": ev["start"],
+                "end": ev["end"],
+                "calls": ev["calls"],
+                "ratePerMin": ev["calls"] / minutes,
+                "pctOfKey": round(ev["calls"] / len(lst) * 1000) / 10,
+                "threshold": threshold,
+            })
+    events.sort(key=lambda e: -e["calls"])
+    return events
+
+
+def is_liveness_call(r, max_input=100, max_output=100):
+    """判断单条调用是否为测活（短输入短输出）调用。"""
+    has_in = r.get("inputTokens") is not None
+    has_out = r.get("outputTokens") is not None
+    if not has_in and not has_out:
+        return False
+    return (r.get("inputTokens") or 0) <= max_input and (r.get("outputTokens") or 0) <= max_output
+
+
+def detect_liveness(records, key_map, max_input=100, max_output=100):
+    """按 key 聚合测活调用（与前端 detectLiveness 同逻辑）。"""
+    groups = defaultdict(list)
+    totals = defaultdict(int)
+    for r in records:
+        kid = r.get("keyID") or r.get("keyId")
+        totals[kid] += 1
+        if is_liveness_call(r, max_input, max_output):
+            groups[kid].append(r)
+    rows = []
+    for kid, recs in groups.items():
+        recs.sort(key=lambda x: x.get("timeCreated") or "")
+        rows.append({
+            "keyId": kid,
+            "displayName": key_map.get(kid, {}).get("displayName", kid),
+            "calls": len(recs),
+            "input": sum(r.get("inputTokens") or 0 for r in recs),
+            "output": sum(r.get("outputTokens") or 0 for r in recs),
+            "cost": sum(r.get("cost") or 0 for r in recs),
+            "totalCalls": totals[kid],
+            "pctOfKey": round(len(recs) / totals[kid] * 1000) / 10 if totals[kid] else 0,
+            "start": recs[0].get("timeCreated"),
+            "end": recs[-1].get("timeCreated"),
+            "models": sorted({r.get("model", "?") for r in recs}),
+        })
+    rows.sort(key=lambda x: -x["calls"])
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser(description="opencode.ai HAR 用量分析")
     ap.add_argument("har", help="HAR 文件路径")
@@ -407,6 +502,26 @@ def main():
         calls = sum(v["calls"] for v in keys.values())
         cost = sum(v["cost"] for v in keys.values())
         print(f"  {hour}  调用 {calls:>4} 次  成本 {cost:,}")
+    print()
+    print("-" * 60)
+    print("异常分析（分钟级高频调用）")
+    print("-" * 60)
+    events = detect_anomalies(result["records"], result["keyMap"])
+    if not events:
+        print("  未检测到异常事件")
+    for e in events[:10]:
+        st = datetime.fromtimestamp(e["start"] / 1000).strftime("%m-%d %H:%M")
+        print(f"  {st}  {e['displayName']:<28}{e['calls']:>4} 次  {e['ratePerMin']:.1f} 次/分  阈值≥{e['threshold']}")
+    print()
+    print("-" * 60)
+    print("测活标注（短输入短输出：input≤100 且 output≤100）")
+    print("-" * 60)
+    live = detect_liveness(result["records"], result["keyMap"])
+    if not live:
+        print("  未发现测活调用")
+    for r in live:
+        st = (r["start"] or "")[:16]
+        print(f"  {st}  {r['displayName']:<28}{r['calls']:>4} 次  占 {r['pctOfKey']}%  成本 {r['cost']:,}")
 
     if args.json:
         out = {
@@ -416,6 +531,8 @@ def main():
             "byKey": agg["byKey"],
             "byHour": agg["byHour"],
             "byModel": agg["byModel"],
+            "anomalies": detect_anomalies(result["records"], result["keyMap"]),
+            "liveness": detect_liveness(result["records"], result["keyMap"]),
         }
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)

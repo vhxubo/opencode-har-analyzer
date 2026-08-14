@@ -499,6 +499,7 @@ th.sortable.sorted-desc::after { content: " ▼"; opacity: 1; color: var(--amber
 .badge.ok { color: var(--teal); border-color: rgba(62, 216, 176, 0.35); background: rgba(62, 216, 176, 0.08); }
 .badge.deleted { color: var(--red); border-color: rgba(224, 106, 116, 0.4); background: rgba(224, 106, 116, 0.08); }
 .badge.plan { color: var(--blue); border-color: rgba(110, 168, 255, 0.35); background: rgba(110, 168, 255, 0.08); }
+.badge.liveness { color: var(--amber); border-color: rgba(242, 169, 59, 0.45); background: rgba(242, 169, 59, 0.1); }
 
 .mono-cell { font-family: var(--font-mono); font-size: 12px; }
 .td-time { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
@@ -649,6 +650,25 @@ body.panel-open .page { padding-right: calc(clamp(16px, 4vw, 40px) + 256px); }
   font-size: 12px;
 }
 .anom-opts .opt input[type="number"]:focus { outline: none; border-color: var(--amber); }
+.opt-divider {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.opt-divider input[type="number"] {
+  width: 56px;
+  padding: 3px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.opt-divider input[type="number"]:focus { outline: none; border-color: var(--amber); }
+.liveness-head { margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line-strong); }
 
 .anom-summary { margin-bottom: 14px; }
 .anom-summary .stats { margin-bottom: 0; }
@@ -662,6 +682,8 @@ body.panel-open .page { padding-right: calc(clamp(16px, 4vw, 40px) + 256px); }
 }
 
 .anom-row { cursor: pointer; }
+.live-row { cursor: pointer; }
+.live-row:hover .anom-toggle { color: var(--amber); }
 .anom-toggle {
   border: none;
   background: transparent;
